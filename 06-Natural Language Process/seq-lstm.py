@@ -1,28 +1,34 @@
-__author__ = 'SherlockLiao'
-
 import torch
 import torch.nn.functional as F
 from torch import nn, optim
 from torch.autograd import Variable
 
-training_data = [("The dog ate the apple".split(),
-                  ["DET", "NN", "V", "DET", "NN"]),
-                 ("Everybody read that book".split(), ["NN", "V", "DET",
-                                                       "NN"])]
+N_DIM = 100
+CHAR_DIM = 10
+CHAR_HIDDEN = 50
+N_HIDDEN = 128
 
-word_to_idx = {}
-tag_to_idx = {}
-for context, tag in training_data:
+# 输入数据格式 单个的词和对应的词性
+training_data = [("The dog ate the apple".split(),["DET", "NN", "V", "DET", "NN"]),
+                 ("Everybody read that book".split(), ["NN", "V", "DET","NN"])]
+word_to_idx = {}  # 9
+tag_to_idx = {"DET": 0, "NN": 1, "V": 2}  # 3
+# tag_to_idx = {}
+# 词性编号
+
+for context, tag in training_data:  # (context, tag)词对
     for word in context:
         if word not in word_to_idx:
-            word_to_idx[word] = len(word_to_idx)
+            word_to_idx[word] = len(word_to_idx)  # 赋值0123..
     for label in tag:
         if label not in tag_to_idx:
-            tag_to_idx[label] = len(tag_to_idx)
+            tag_to_idx[label] = len(tag_to_idx)  # 赋值0123..
+
+
 alphabet = 'abcdefghijklmnopqrstuvwxyz'
 character_to_idx = {}
 for i in range(len(alphabet)):
-    character_to_idx[alphabet[i]] = i
+    character_to_idx[alphabet[i]] = i  # 赋值0123..
 
 
 class CharLSTM(nn.Module):
@@ -38,34 +44,42 @@ class CharLSTM(nn.Module):
 
 
 class LSTMTagger(nn.Module):
-    def __init__(self, n_word, n_char, char_dim, n_dim, char_hidden, n_hidden,
+    def __init__(self, n_word, n_dim, n_char, char_dim, char_hidden, n_hidden,
                  n_tag):
         super(LSTMTagger, self).__init__()
         self.word_embedding = nn.Embedding(n_word, n_dim)
         self.char_lstm = CharLSTM(n_char, char_dim, char_hidden)
-        self.lstm = nn.LSTM(n_dim + char_hidden, n_hidden, batch_first=True)
+        self.lstm = nn.LSTM(n_dim + char_hidden, n_hidden, batch_first=True)  # ???
         self.linear1 = nn.Linear(n_hidden, n_tag)
 
-    def forward(self, x, word):
+    def forward(self, x, words):
         char = torch.FloatTensor()
-        for each in word:
+        for each in words:  # words是所有单词, each是每个单词
             char_list = []
             for letter in each:
                 char_list.append(character_to_idx[letter.lower()])
             char_list = torch.LongTensor(char_list)
             char_list = char_list.unsqueeze(0)
-            if torch.cuda.is_available():
-                tempchar = self.char_lstm(Variable(char_list).cuda())
-            else:
-                tempchar = self.char_lstm(Variable(char_list))
-            tempchar = tempchar.squeeze(0)
-            char = torch.cat((char, tempchar.cpu().data), 0)
-        if torch.cuda.is_available():
-            char = char.cuda()
+            tempchar = self.char_lstm(Variable(char_list))
+            tempchar = tempchar.squeeze(0)  # tempchar是单个单词的词向量
+            char = torch.cat((char, tempchar.data), 0)  # char是所有单词的词向量
+
+            # if torch.cuda.is_available():
+            #     tempchar = self.char_lstm(Variable(char_list).cuda())
+            # else:
+            #     tempchar = self.char_lstm(Variable(char_list))
+            # tempchar = tempchar.squeeze(0)
+            # char = torch.cat((char, tempchar.cpu().data), 0)
+            # 已改
+
+        # if torch.cuda.is_available():
+        #     char = char.cuda()
+
         char = Variable(char)
-        x = self.word_embedding(x)
-        x = torch.cat((x, char), 1)
-        x = x.unsqueeze(0)
+
+        x = self.word_embedding(x)  # x = n_word ???
+        x = torch.cat((x, char), 1)  # 0和1分别表示沿着行和列来拼接
+        x = x.unsqueeze(0)  # unsqueeze和squeeze是因为LSTM的输入要求要带上batch_size
         x, _ = self.lstm(x)
         x = x.squeeze(0)
         x = self.linear1(x)
@@ -74,13 +88,17 @@ class LSTMTagger(nn.Module):
 
 
 model = LSTMTagger(
-    len(word_to_idx), len(character_to_idx), 10, 100, 50, 128, len(tag_to_idx))
-if torch.cuda.is_available():
-    model = model.cuda()
-criterion = nn.CrossEntropyLoss()
+    len(word_to_idx), N_DIM, len(character_to_idx), CHAR_DIM, CHAR_HIDDEN, N_HIDDEN,
+    len(tag_to_idx))
+
+# if torch.cuda.is_available():
+#     model = model.cuda()
+
+loss_function = nn.CrossEntropyLoss()
 optimizer = optim.SGD(model.parameters(), lr=1e-2)
 
 
+# 输入数据封装成Variable
 def make_sequence(x, dic):
     idx = [dic[i] for i in x]
     idx = Variable(torch.LongTensor(idx))
@@ -95,22 +113,24 @@ for epoch in range(300):
         word, tag = data
         word_list = make_sequence(word, word_to_idx)
         tag = make_sequence(tag, tag_to_idx)
-        if torch.cuda.is_available():
-            word_list = word_list.cuda()
-            tag = tag.cuda()
+
+        # if torch.cuda.is_available():
+        #     word_list = word_list.cuda()
+        #     tag = tag.cuda()
         # forward
         out = model(word_list, word)
-        loss = criterion(out, tag)
-        running_loss += loss.data[0]
+        loss = loss_function(out, tag)
+        running_loss += loss.item()
         # backward
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
     print('Loss: {}'.format(running_loss / len(data)))
 print()
-input = make_sequence("Everybody ate the apple".split(), word_to_idx)
-if torch.cuda.is_available():
-    input = input.cuda()
 
-out = model(input, "Everybody ate the apple".split())
+input = make_sequence("Everybody read the book".split(), word_to_idx)
+# if torch.cuda.is_available():
+#     input = input.cuda()
+
+out = model(input, "Everybody read the book".split())
 print(out)
