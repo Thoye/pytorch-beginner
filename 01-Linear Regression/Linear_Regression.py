@@ -1,5 +1,3 @@
-__author__ = 'SherlockLiao'
-
 import torch
 from torch import nn, optim
 from torch.autograd import Variable
@@ -14,12 +12,11 @@ y_train = np.array([[1.7], [2.76], [2.09], [3.19], [1.694], [1.573],
                     [3.366], [2.596], [2.53], [1.221], [2.827],
                     [3.465], [1.65], [2.904], [1.3]], dtype=np.float32)
 
-
 x_train = torch.from_numpy(x_train)
-
 y_train = torch.from_numpy(y_train)
 
 
+# 线性回归
 # Linear Regression Model
 class LinearRegression(nn.Module):
     def __init__(self):
@@ -33,7 +30,7 @@ class LinearRegression(nn.Module):
 
 model = LinearRegression()
 # 定义loss和优化函数
-criterion = nn.MSELoss()
+loss_function = nn.MSELoss()
 optimizer = optim.SGD(model.parameters(), lr=1e-4)
 
 # 开始训练
@@ -44,7 +41,7 @@ for epoch in range(num_epochs):
 
     # forward
     out = model(inputs)
-    loss = criterion(out, target)
+    loss = loss_function(out, target)
     # backward
     optimizer.zero_grad()
     loss.backward()
@@ -52,10 +49,11 @@ for epoch in range(num_epochs):
 
     if (epoch+1) % 20 == 0:
         print('Epoch[{}/{}], loss: {:.6f}'
-              .format(epoch+1, num_epochs, loss.data[0]))
+              .format(epoch+1, num_epochs, loss.item()))
 
 model.eval()
 predict = model(Variable(x_train))
+
 predict = predict.data.numpy()
 plt.plot(x_train.numpy(), y_train.numpy(), 'ro', label='Original data')
 plt.plot(x_train.numpy(), predict, label='Fitting Line')
